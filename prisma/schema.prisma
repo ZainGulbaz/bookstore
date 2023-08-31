@@ -18,6 +18,7 @@ model User {
   email       String      @unique
   password    String
   points      Int         @default(100)
+  orders      Order[]
 }
 
 //Book Model
@@ -27,7 +28,8 @@ model Book {
   title       String      @unique
   writer    String
   points      Int      
-  tags       Tag[]   
+  tags       Tag[]  
+  books      OrdersOnBooks[]
 }
 
 model Tag {
@@ -38,3 +40,24 @@ model Tag {
 }
 
 
+model Order{
+
+  id        Int              @id @default(autoincrement())
+  user      User             @relation(fields:[userId],references: [id])
+  userId    Int
+  createdAt DateTime         @default(now())
+  isCancel  Boolean          @default(false)
+  orders  OrdersOnBooks[]
+  points    Int
+
+}
+
+model OrdersOnBooks{
+
+  order      Order     @relation(fields: [orderId], references: [id])
+  orderId    Int 
+  book       Book      @relation(fields: [bookId], references: [id])
+  bookId     Int 
+
+  @@id([orderId, bookId])
+}
