@@ -1,4 +1,4 @@
-### BOOK STORE:
+# BOOK STORE:
 
 ## APIs:
 
@@ -22,5 +22,5 @@
 1- Response Serialization
 
 
-# Author: Zain Gulbaz 
-# Tools: Nest JS + Prisma + PostgreSQL
+#### Author: Zain Gulbaz 
+#### Tools: Nest JS + Prisma + PostgreSQL
