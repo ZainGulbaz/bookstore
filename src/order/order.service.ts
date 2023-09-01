@@ -1,4 +1,10 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import {
+  HttpStatus,
+  Injectable,
+  UnprocessableEntityException,
+  BadRequestException,
+  UnauthorizedException
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { CreateOrderDto } from './dtos/order-create.dto';
 import { CustomResponse } from 'src/utils/types';
@@ -23,17 +29,17 @@ export class OrderService {
       );
 
       if (totalPointsToBeDebited == false) {
-        responsePayload.message.push(Strings.order.insufficient_funds);
-        responsePayload.statusCode = HttpStatus.UNPROCESSABLE_ENTITY;
-        return;
+        throw new UnprocessableEntityException({
+          message: [Strings.order.created_failure],
+          error: Strings.order.insufficient_funds,
+          statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+        });
       }
 
-      console.log(totalPointsToBeDebited,"total point");
-
       let createdOrder = await this.prisma.order.create({
-        data: { userId: user.id, points: totalPointsToBeDebited},
+        data: { userId: user.id, points: totalPointsToBeDebited },
       });
-     
+
       const orderBookJunctionData = [];
 
       if (createdOrder.id) {
@@ -57,7 +63,8 @@ export class OrderService {
 
           if (isDebited == false) {
             //cancel the order
-            this.changeOrderStatus(createdOrder.id,true);
+            this.changeOrderStatus(createdOrder.id, true);
+
             throw new Error(Strings.order.payment_failure);
           }
 
@@ -70,17 +77,118 @@ export class OrderService {
               bookIds: body.bookIds,
             },
           };
-          return;
+          return responsePayload;
         }
       }
 
       throw new Error(Strings.order.created_failure_database);
     } catch (err) {
-      responsePayload.message.push(Strings.order.created_failure);
-      responsePayload.message.push(err.message);
-      responsePayload.statusCode = HttpStatus.BAD_REQUEST;
-    } finally {
-      return responsePayload;
+      if (err.response && err.response.statusCode === HttpStatus.UNPROCESSABLE_ENTITY)
+        throw new UnprocessableEntityException(err.response);
+
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: [Strings.order.created_failure],
+        error: err.message,
+      });
+    }
+  }
+
+  async cancelOrder(
+    orderId: Order['id'],
+    userId: User['id'],
+  ): Promise<CustomResponse> {
+    let responsePayload: CustomResponse = {
+      statusCode: HttpStatus.AMBIGUOUS,
+      message: [],
+      data: {},
+    };
+    try {
+      let order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+      });
+
+      //user validation
+      if (order.userId !== userId) {
+        throw new UnauthorizedException({
+          statusCode:HttpStatus.UNAUTHORIZED,
+          message:[Strings.order.cancel_failure],
+          error:Strings.order.unauthorized_order_access,
+        })
+      }
+
+      if (order.isCancel) {
+       throw new Error(Strings.order.order_already_canceled);
+      }
+      let cancelOrder = await this.prisma.order.update({
+        where: {
+          id: orderId,
+        },
+        data: {
+          isCancel: true,
+        },
+      });
+      if (cancelOrder.id) {
+        let ArePointsCredited = await this.creditPoints(
+          userId,
+          cancelOrder.points,
+        );
+        if (ArePointsCredited == false) {
+          this.changeOrderStatus(orderId, false);
+          throw new Error(Strings.order.points_credited_error);
+        }
+        responsePayload.data = { order: cancelOrder };
+        responsePayload.message.push(Strings.order.cancel_success);
+        responsePayload.statusCode = HttpStatus.OK;
+        return responsePayload;
+      }
+      throw new Error(Strings.order.cancel_database_failure);
+    } catch (err) {
+      if(err.response && err.response.statusCode==HttpStatus.UNAUTHORIZED) throw new UnauthorizedException(err.response);
+      
+      throw new BadRequestException({
+         message:[Strings.order.cancel_failure],
+         error:err.message,
+         statusCode:HttpStatus.BAD_REQUEST
+      });
+    } 
+  }
+
+  //------------------------------------------ HELPER METHODS -----------------------------------------------
+  private async creditPoints(userId: number, refunedPoints: number) {
+    try {
+      let updatedUser = await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          points: {
+            increment: refunedPoints,
+          },
+        },
+      });
+      if (updatedUser) return true;
+      else return false;
+    } catch (err) {
+      throw new Error(err);
+    }
+  }
+  private async changeOrderStatus(
+    orderId: number,
+    status: boolean,
+  ): Promise<false | number> {
+    try {
+      let res = await this.prisma.order.update({
+        where: {
+          id: orderId,
+        },
+        data: {
+          isCancel: status,
+        },
+      });
+      if (res.id) {
+        return res.id;
+      } else false;
+    } catch (err) {
+      throw new Error(err);
     }
   }
 
@@ -95,8 +203,10 @@ export class OrderService {
       });
       let user = await this.prisma.user.findUnique({ where: { id: userId } });
 
-      
-      if (booksPointsRes._sum.points && user.points > booksPointsRes._sum.points) {
+      if (
+        booksPointsRes._sum.points &&
+        user.points > booksPointsRes._sum.points
+      ) {
         return booksPointsRes._sum.points;
       }
       return false;
@@ -121,88 +231,6 @@ export class OrderService {
         return true;
       }
       return false;
-    } catch (err) {
-      throw new Error(err);
-    }
-  }
-
-  async cancelOrder(
-    orderId: Order['id'],
-    userId: User['id'],
-  ): Promise<CustomResponse> {
-    let responsePayload: CustomResponse = {
-      statusCode: HttpStatus.AMBIGUOUS,
-      message: [],
-      data: {},
-    };
-    try {
-      let order = await this.prisma.order.findUnique({
-        where: { id: orderId },
-      });
-      if (order.isCancel) {
-        responsePayload.message.push(Strings.order.order_already_canceled);
-        responsePayload.statusCode = HttpStatus.CONFLICT;
-        return;
-      }
-      let cancelOrder = await this.prisma.order.update({
-        where: {
-          id: orderId,
-        },
-        data: {
-          isCancel: true,
-        },
-      });
-      if (cancelOrder.id) {
-        let ArePointsCredited = await this.creditPoints(userId, cancelOrder.points);
-        if (ArePointsCredited == false) {
-          this.changeOrderStatus(orderId,false);
-          throw new Error(Strings.order.points_credited_error);
-        }
-        responsePayload.data = { order: cancelOrder };
-        responsePayload.message.push(Strings.order.cancel_success);
-        responsePayload.statusCode = HttpStatus.OK;
-        return;
-      }
-      throw new Error(Strings.order.cancel_database_failure);
-    } catch (err) {
-      responsePayload.message.push(Strings.order.cancel_failure);
-      responsePayload.message.push(err.message);
-      responsePayload.statusCode = HttpStatus.BAD_REQUEST;
-    } finally {
-      return responsePayload;
-    }
-  }
-  private async creditPoints(userId: number, refunedPoints: number) {
-    try {
-      let updatedUser = await this.prisma.user.update({
-        where: { id: userId },
-        data: {
-          points: {
-            increment: refunedPoints,
-          },
-        },
-      });
-      if (updatedUser) return true;
-      else return false;
-    } catch (err) {
-      throw new Error(err);
-    }
-  }
-  private async changeOrderStatus(orderId: number, status: boolean):Promise<false|number> {
-    try {
-      let res=await this.prisma.order.update({
-        where: {
-          id: orderId,
-        },
-        data: {
-          isCancel: status,
-        },
-      });
-      if(res.id)
-      {
-        return res.id;
-      }
-      else false;
     } catch (err) {
       throw new Error(err);
     }

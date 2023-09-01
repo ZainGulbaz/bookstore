@@ -1,4 +1,4 @@
-import { Injectable, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpStatus,BadRequestException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { CustomResponse } from 'src/utils/types';
 import { CreateBookDto } from './dtos/create-book.dto';
@@ -46,21 +46,21 @@ export class BooksService {
         responsePayload.data = {
           book: {...createdBook,tags:data?.tags},
         };
-        return;
+        return responsePayload;
       }
 
       throw new Error(Strings.book.create_book_database_error);
     } catch (err) {
-      console.error(err);  
+      
       if (ErrorCodes[err?.code]) {
-        responsePayload.message.push(errorGenerator(err));
+        err.message=errorGenerator(err);
       }  
-      responsePayload.message.push(Strings.book.created_error);
-      responsePayload.message.push(err.message);
 
-      responsePayload.statusCode = HttpStatus.BAD_REQUEST;
-    } finally {
-      return responsePayload;
+      throw new BadRequestException({
+        statusCode:HttpStatus.BAD_REQUEST,
+        message:[Strings.book.created_error],
+        error:err.message
+      })
     }
   }
 
@@ -80,7 +80,7 @@ export class BooksService {
             };
             responsePayload.message.push(Strings.book.find_many_success);
             responsePayload.statusCode=HttpStatus.FOUND;
-            return;
+            return responsePayload;
 
         }
 
@@ -91,14 +91,15 @@ export class BooksService {
     {
         if(ErrorCodes[err?.code])
         {
-            responsePayload.message.push(errorGenerator(err));
+            err.message=errorGenerator(err);
         }
-        responsePayload.message.push(Strings.book.find_many_error);
-        responsePayload.message.push(err.message);
-        responsePayload.statusCode=HttpStatus.BAD_REQUEST;
-    }
-    finally{
-    return responsePayload;
+        
+        throw new BadRequestException({
+          statusCode:HttpStatus.BAD_REQUEST,
+          message:[Strings.book.find_many_error],
+          error:err.message
+        });
+
     }
   }
 }

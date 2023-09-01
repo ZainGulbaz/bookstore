@@ -1,4 +1,4 @@
-import { Injectable,HttpStatus} from '@nestjs/common';
+import { Injectable,HttpStatus,BadRequestException,UnauthorizedException} from '@nestjs/common';
 import { PrismaService } from 'src/prisma.service';
 import { CreateUserDto } from './dtos/user-create.dto';
 import { CustomResponse } from 'src/utils/types';
@@ -8,7 +8,6 @@ import { errorGenerator, validatePassword } from 'src/utils/Commons';
 import * as bcrypt from "bcrypt";
 import { LoginDto } from './dtos/user-login.dto';
 import { JwtService } from '@nestjs/jwt';
-
 
 @Injectable()
 export class UserService {
@@ -23,9 +22,7 @@ export class UserService {
         statusCode:HttpStatus.AMBIGUOUS,
     }
     
-    try{
-        
-        
+    try{        
         let passwordHash:string= bcrypt.hashSync(data.password,parseInt(process.env.SALT_ROUNDS!));
         data.password=passwordHash;
 
@@ -38,24 +35,19 @@ export class UserService {
         responsePayload.data={user:createdUser};
         responsePayload.message.push(Strings.user.created_success);
         responsePayload.statusCode=HttpStatus.CREATED;
-        return;
+        return responsePayload;
        }
        else throw new Error(Strings.user.create_user_database_error);
       
     }
     catch(err){
-       
         if(ErrorCodes[err?.code])
         {
-            responsePayload.message.push(errorGenerator(err));
+            err.message=errorGenerator(err);
         }
-        responsePayload.message.push(Strings.user.created_error);
-        responsePayload.message.push(err.message);
-    }
-    finally{
-        return responsePayload;
-    }
-    
+        throw new BadRequestException({statusCode:HttpStatus.BAD_REQUEST,
+        message:[Strings.user.created_error], error:err.message});   
+    }  
     
   }
 
@@ -69,35 +61,30 @@ export class UserService {
 
        let user= await this.prisma.user.findUnique({where:{email:body.email}})
 
-
        if(!user){
-        responsePayload.message.push(Strings.user.invalid_email);
-        throw new Error();
+        throw new Error(Strings.user.invalid_email);
        }
       
        if(!validatePassword(body.password,user.password)){
-        responsePayload.message.push(Strings.user.validate_failed);
-        throw new Error();
+        throw new Error(Strings.user.validate_failed);
        }
        
-       console.log(user);
-
        let token=this.generateToken(user);
 
        responsePayload.data={token}
        responsePayload.message.push(Strings.user.login_success);
        responsePayload.statusCode=HttpStatus.OK;
+       return responsePayload;
    
 
     }
     catch(err)
-    {
-         responsePayload.message.push(Strings.user.login_failure);
-         responsePayload.message.push(err.message);
-         responsePayload.statusCode=HttpStatus.UNAUTHORIZED;
-    }
-    finally{
-      return responsePayload;
+    {        
+         throw new UnauthorizedException({
+          error:err.message,
+          message:[Strings.user.login_failure],
+          statusCode:HttpStatus.UNAUTHORIZED
+         })
     }
 
   }

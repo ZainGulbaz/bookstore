@@ -35,7 +35,8 @@ const Strings = {
     cancel_failure:"The order was not able to canceled",
     cancel_database_failure:"Unable to update the status of order in database",
     order_already_canceled:"The order was already canceled",
-    points_credited_error:"The points were not credited"
+    points_credited_error:"The points were not credited",
+    unauthorized_order_access:"You are not allowed to access this order"
 
   }
 } as const;
